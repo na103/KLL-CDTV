@@ -1,0 +1,7 @@
+# your own copy of the original CD, and anything built from it
+/iso/
+/build/
+# the two Commodore files: see the README
+/cdtv/
+__pycache__/
+*.o

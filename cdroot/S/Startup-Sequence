@@ -1,0 +1,7 @@
+; The CDTV trademark covers everything until it is removed, and it is not
+; touched here, so it stays put while the program loads (otherwise the boot
+; CLI would show for a couple of seconds between RMTM and the first screen).
+; KLL removes the logo itself once the title screen is ready; the line below
+; only matters if KLL fails to start, or once it quits.
+KLL
+RMTM
