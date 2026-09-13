@@ -7,6 +7,9 @@
  */
 #include <exec/types.h>
 #include <exec/interrupts.h>
+#include <exec/memory.h>
+#include <devices/input.h>
+#include <devices/inputevent.h>
 #include <hardware/intbits.h>
 #include <graphics/gfxbase.h>
 #include <intuition/intuition.h>
@@ -32,6 +35,11 @@ extern void VblServer(void);
 static struct Interrupt vbl_int;
 static UWORD black[32];
 
+static struct Interrupt input_int;
+static struct MsgPort *input_port;
+static struct IOStdReq *input_req;
+static BOOL input_added;
+
 void msg(const char *s)
 {
 	BPTR out = Output();
@@ -43,6 +51,82 @@ void msg(const char *s)
 void set_palette(struct Screen *scr)
 {
 	LoadRGB4(&scr->ViewPort, palette, 32);
+}
+
+/*
+ * Intuition lets the user drag a screen down (left Amiga + mouse, or the
+ * title bar, which stays active above backdrop windows even when SCREENQUIET
+ * hides it) and flip screens with left Amiga + N/M: either way the boot CLI
+ * shows up behind the program. Kickstart 1.3 has no way to lock a screen in
+ * place, so this input handler, ahead of Intuition (priority 50), takes those
+ * events away. It runs in the input.device task: no library calls here.
+ */
+static struct InputEvent *input_filter(register struct InputEvent *list __asm("a0"),
+				       register struct Screen *scr __asm("a1"))
+{
+	struct InputEvent *ie;
+
+	for (ie = list; ie; ie = ie->ie_NextEvent) {
+		if (ie->ie_Class == IECLASS_RAWMOUSE) {
+			ie->ie_Qualifier &= ~(IEQUALIFIER_LCOMMAND | IEQUALIFIER_RCOMMAND);
+			/* no hotspot lives up there: the rows are the black border */
+			if (ie->ie_Code == IECODE_LBUTTON && scr->MouseY <= scr->BarHeight)
+				ie->ie_Class = IECLASS_NULL;
+		} else if (ie->ie_Class == IECLASS_RAWKEY &&
+			   (ie->ie_Qualifier & (IEQUALIFIER_LCOMMAND | IEQUALIFIER_RCOMMAND)) &&
+			   ((ie->ie_Code & ~IECODE_UP_PREFIX) == 0x36 ||	/* N */
+			    (ie->ie_Code & ~IECODE_UP_PREFIX) == 0x37)) {	/* M */
+			ie->ie_Class = IECLASS_NULL;
+		}
+	}
+	return list;
+}
+
+static BOOL input_open(struct Screen *scr)
+{
+	input_port = port_create();
+	if (!input_port)
+		return FALSE;
+	input_req = AllocMem(sizeof(*input_req), MEMF_PUBLIC | MEMF_CLEAR);
+	if (!input_req)
+		return FALSE;
+	input_req->io_Message.mn_Node.ln_Type = NT_MESSAGE;
+	input_req->io_Message.mn_ReplyPort = input_port;
+	input_req->io_Message.mn_Length = sizeof(*input_req);
+	if (OpenDevice((CONST_STRPTR)"input.device", 0, (struct IORequest *)input_req, 0)) {
+		FreeMem(input_req, sizeof(*input_req));
+		input_req = NULL;
+		return FALSE;
+	}
+	input_int.is_Node.ln_Type = NT_INTERRUPT;
+	input_int.is_Node.ln_Pri = 51;
+	input_int.is_Node.ln_Name = (char *)"KLL screen lock";
+	input_int.is_Code = (VOID (*)())input_filter;
+	input_int.is_Data = scr;
+	input_req->io_Command = IND_ADDHANDLER;
+	input_req->io_Data = &input_int;
+	DoIO((struct IORequest *)input_req);
+	input_added = TRUE;
+	return TRUE;
+}
+
+static void input_close(void)
+{
+	if (input_req) {
+		if (input_added) {
+			input_req->io_Command = IND_REMHANDLER;
+			input_req->io_Data = &input_int;
+			DoIO((struct IORequest *)input_req);
+			input_added = FALSE;
+		}
+		CloseDevice((struct IORequest *)input_req);
+		FreeMem(input_req, sizeof(*input_req));
+		input_req = NULL;
+	}
+	if (input_port) {
+		port_delete(input_port);
+		input_port = NULL;
+	}
 }
 
 #ifndef KLL_NO_REBOOT
@@ -130,6 +214,8 @@ int main(void)
 	AddIntServer(INTB_VERTB, &vbl_int);
 	vbl_added = TRUE;
 
+	if (!input_open(scr))
+		msg("KLL: input.device not available, the screen can be dragged\n");
 	if (!audio_open())
 		msg("KLL: audio.device not available\n");
 
@@ -138,6 +224,7 @@ int main(void)
 
 cleanup:
 	audio_close();
+	input_close();
 	if (vbl_added)
 		RemIntServer(INTB_VERTB, &vbl_int);
 	if (win)
