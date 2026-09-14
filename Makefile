@@ -6,6 +6,7 @@
 #   make exe                       just the Amiga executable
 #   make media                     convert the pictures, audio and clips
 #   make test                      check the C decoder against the Python one
+#   make cover                     printable CD cover in build/cover
 #
 # The original CD is not part of this repository: point ISO at your own image
 # (the default is iso/klingon.ISO). The same goes for CDTV.TM and RMTM, which
@@ -62,7 +63,7 @@ DATA := $(addprefix $(CD)/DATA/,$(addsuffix .PIC,$(SCREENS))) \
 
 CD_FILES := $(CD)/KLL $(CD)/C/RMTM $(CD)/S/Startup-Sequence $(DATA) build/stamp-media
 
-.PHONY: all check extract exe media test clean distclean
+.PHONY: all check extract exe media test cover clean distclean
 
 all: check $(OUT_ISO)
 
@@ -188,6 +189,14 @@ test: build/delta_test build/delta_test.amiga build/stamp-media
 			$(PYTHON) tools/kxlcheck.py $$f --raw build/delta_test_amiga.raw || exit 1; \
 		fi; \
 	done
+
+# -------------------------------------------------------------------- cover
+
+# printable CD cover (front, back with the spines, A4 sheet with crop marks):
+# the emblem, the logos and the screens come from the original CD, the free
+# fonts are downloaded from Google Fonts on the first run
+cover: | $(SRC)/.done
+	$(PYTHON) tools/mkcover.py $(SRC)/FIN_IMS2 build/cover
 
 clean:
 	rm -rf $(OBJ) $(CD) $(GEN) $(OUT_ISO) build/gui_palette.json build/stamp-* \

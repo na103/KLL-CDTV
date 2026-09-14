@@ -96,6 +96,7 @@ make extract    # only unpack the original ISO into build/src
 make exe        # only the build/cd/KLL executable
 make media      # only the entry content (pictures, audio, clips)
 make test       # check the C decoder against the Python one
+make cover      # printable CD cover in build/cover
 ```
 
 Converting the 98 clips is the slow part and can be cut down while working on
@@ -112,6 +113,14 @@ interrupted and resumed. The complete ISO is about 50 MB.
 Burning it: write the image as-is ("burn image"). If the burning program
 builds a new data disc out of the files it will rebuild the filesystem and
 lose the `CDTV.TM` in the System Area, and the CDTV will not boot.
+
+`make cover` draws a jewel case cover for the disc: the front booklet, the
+tray inlay with its spines and an A4 sheet with crop and fold marks
+(`build/cover/cover_A4.pdf`, print it at 100%), in the style of the Star Trek:
+Klingon box and of the CDTV titles. The emblem, the Simon & Schuster logo and
+the screens are taken from your original CD, so the cover, like the CD, is for
+personal use only; the free fonts are downloaded from Google Fonts on the
+first run.
 
 ## CDTV.TM
 
