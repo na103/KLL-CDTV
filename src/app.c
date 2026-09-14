@@ -901,16 +901,34 @@ static CONST_STRPTR drill_path(UWORD cat, char kind)
 	return (CONST_STRPTR)pathbuf;
 }
 
-/* Four different entries of the category, one of which is the answer. */
-static void pick_quiz(struct app *a, struct quiz *q)
+/*
+ * Four different entries of the category, one of which is the answer. The
+ * answer is not one of the n questions already asked (asked), unless the
+ * category runs out of entries.
+ */
+static void pick_quiz(struct app *a, struct quiz *q, const UWORD *asked, UWORD n)
 {
-	UWORD count = db_count(a->cat);
+	UWORD count = db_count(a->cat), answer;
 	WORD i, j;
 
 	q->kind = (UWORD)(1 + rnd(3));
+	do {
+		answer = rnd(count);
+		for (j = 0; j < (WORD)n; j++)
+			if (asked[j] == answer)
+				break;
+	} while (j < (WORD)n && count > n);
+
+	q->right = rnd(DRILL_ANSWERS);
 	for (i = 0; i < DRILL_ANSWERS; i++) {
+		if (i == (WORD)q->right) {
+			q->item[i] = answer;
+			continue;
+		}
 		for (;;) {
 			q->item[i] = rnd(count);
+			if (q->item[i] == answer)
+				continue;
 			for (j = 0; j < i; j++)
 				if (q->item[j] == q->item[i])
 					break;
@@ -918,7 +936,13 @@ static void pick_quiz(struct app *a, struct quiz *q)
 				break;
 		}
 	}
-	q->right = rnd(DRILL_ANSWERS);
+}
+
+/* Repaints a piece of the drill screen, clearing whatever is on top of it. */
+static void drill_restore(struct app *a, const struct rect *r)
+{
+	if (a->bg.data)
+		pic_blit(&a->bg, a->scr, r->x, r->y, r->w, r->h, r->x, r->y);
 }
 
 /* Counters and meter: right answers in red from the right, wrong ones in green from the left. */
@@ -927,9 +951,12 @@ static void draw_score(struct app *a, UWORD right, UWORD wrong)
 	struct rect bar = r_meter;
 	char buf[6], *p;
 
+	/* the text is transparent: without clearing, the new number lands on the old one */
+	drill_restore(a, &r_wrong_n);
 	p = put_num(buf, wrong);
 	*p = '\0';
 	ui_text(&r_wrong_n, (CONST_STRPTR)buf, PEN_TEXT);
+	drill_restore(a, &r_right_n);
 	p = put_num(buf, right);
 	*p = '\0';
 	ui_text(&r_right_n, (CONST_STRPTR)buf, PEN_TEXT);
@@ -943,13 +970,6 @@ static void draw_score(struct app *a, UWORD right, UWORD wrong)
 		bar.x = r_meter.x + r_meter.w - bar.w;
 		ui_fill(&bar, PEN_RED);
 	}
-}
-
-/* Repaints a piece of the drill screen, clearing whatever is on top of it. */
-static void drill_restore(struct app *a, const struct rect *r)
-{
-	if (a->bg.data)
-		pic_blit(&a->bg, a->scr, r->x, r->y, r->w, r->h, r->x, r->y);
 }
 
 /* Sets up the question screen; for the third kind it plays the entry. */
@@ -1166,6 +1186,7 @@ static void score(struct app *a, UWORD right, UWORD wrong)
 static void drill(struct app *a)
 {
 	UWORD right = 0, wrong = 0, n;
+	UWORD asked[DRILL_QUESTIONS];
 
 	a->next = NEXT_MENU;
 	a->back = FALSE;
@@ -1180,7 +1201,8 @@ static void drill(struct app *a)
 		struct quiz q;
 		WORD chosen;
 
-		pick_quiz(a, &q);
+		pick_quiz(a, &q, asked, n);
+		asked[n] = q.item[q.right];
 		show_quiz(a, &q, right, wrong);
 		chosen = ask_quiz(a, &q);
 		if (chosen < 0)
